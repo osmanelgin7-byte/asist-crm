@@ -1,0 +1,18 @@
+services:
+  flowcrm:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: file:/data/flowcrm.db
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env.production}
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+      SEED_ON_START: ${SEED_ON_START:-true}
+    volumes:
+      - flowcrm-data:/data
+      - flowcrm-uploads:/app/uploads
+    restart: unless-stopped
+
+volumes:
+  flowcrm-data:
+  flowcrm-uploads:

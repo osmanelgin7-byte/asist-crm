@@ -1,0 +1,390 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  PLANLAMA
+}
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(PLANLAMA)
+  allowedTabs String?
+  active    Boolean  @default(true)
+  firstLoginAt DateTime?
+  lastLoginAt  DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedOrders WorkOrder[] @relation("AssignedTechnician")
+  employeeProfile EmployeeProfile?
+  activityLogs   ActivityLog[]
+  loginSessions  LoginSession[]
+  plannerEvents  PlannerEvent[]
+  teamNotes      TeamNoteEntry[]
+  workOrderOperatorNotes WorkOrderOperatorNote[]
+  sentMailMessages MailMessage[] @relation("MailSender")
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String
+  action      String
+  entityType  String
+  entityId    String?
+  entityLabel String?
+  details     String?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model LoginSession {
+  id       String    @id @default(cuid())
+  userId   String
+  loginAt  DateTime  @default(now())
+  logoutAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PlannerEvent {
+  id          String    @id @default(cuid())
+  userId      String
+  workOrderId String?   @unique
+  title       String
+  description String?
+  startAt     DateTime
+  endAt       DateTime?
+  allDay      Boolean   @default(false)
+  color       String    @default("indigo")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startAt])
+}
+
+model TeamNoteEntry {
+  id        String   @id @default(cuid())
+  content   String
+  authorId  String
+  createdAt DateTime @default(now())
+
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+}
+
+model EmployeeProfile {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  nationalId       String?
+  birthDate        DateTime?
+  phone            String?
+  address          String?
+  emergencyContact String?
+  emergencyPhone   String?
+  department       String?
+  jobTitle         String?
+  hireDate         DateTime
+  terminationDate  DateTime?
+  monthlyGrossWage Float?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leaveRecords LeaveRecord[]
+}
+
+enum LeaveType {
+  YILLIK
+  UCRETSIZ
+  RAPOR
+}
+
+model LeaveRecord {
+  id         String    @id @default(cuid())
+  employeeId String
+  startDate  DateTime
+  endDate    DateTime
+  days       Float
+  type       LeaveType @default(YILLIK)
+  note       String?
+  attachmentFileName String?
+  attachmentMimeType String?
+  attachmentPath     String?
+  createdAt  DateTime  @default(now())
+
+  employee EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+}
+
+model HrSetting {
+  id                 String @id @default("default")
+  minimumWageGross   Float  @default(22104)
+  updatedAt          DateTime @updatedAt
+}
+
+model InsuranceCompany {
+  id            String   @id @default(cuid())
+  name          String
+  shortCode     String?  @map("brand")
+  city          String?
+  address       String?
+  contactPerson String?
+  phone         String?
+  email         String?
+  assistanceContactName String? @map("branchContactPerson")
+  assistancePhone       String? @map("branchPhone")
+  accountManagerName    String? @map("regionalManagerName")
+  accountManagerPhone   String? @map("regionalManagerPhone")
+  accountManagerEmail   String? @map("regionalManagerEmail")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workOrders WorkOrder[]
+
+  @@map("Store")
+}
+
+model JobTypeDefinition {
+  code      String   @id
+  label     String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Priority {
+  DUSUK
+  NORMAL
+  YUKSEK
+  ACIL
+}
+
+enum WorkOrderStatus {
+  YENI_IS
+  ISLEMDE
+  TEKLIF_VERILDI
+  SERVIS_BEDELI_ILE_TAMAMLANDI
+  TAMAMLANDI
+  IPTAL
+}
+
+model WorkOrder {
+  id          String          @id @default(cuid())
+  ticketNo    String          @unique
+  title       String
+  asistansDosyaNo String?     @unique
+  insuredFirstName String?
+  insuredLastName  String?
+  insuredPhone     String?
+  insuredAddress   String?
+  insuredCity      String?
+  insuredDistrict  String?
+  description String?
+  jobType     String          @default("GENEL_BAKIM")
+  status      WorkOrderStatus @default(YENI_IS)
+  priority    Priority        @default(NORMAL)
+  reportedAt  DateTime        @default(now())
+  appointmentAt DateTime?
+  completedAt DateTime?
+  invoiceAmount Float  @default(0)
+  supplierCost  Float  @default(0)
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  insuranceCompanyId String @map("storeId")
+  assignedToId       String?
+  supplierId         String?
+  insuranceCompany   InsuranceCompany @relation(fields: [insuranceCompanyId], references: [id])
+  assignedTo         User?            @relation("AssignedTechnician", fields: [assignedToId], references: [id])
+  supplier           Supplier?        @relation(fields: [supplierId], references: [id])
+  supplierLedger     SupplierLedgerEntry?
+  repairItems        WorkOrderRepairItem[]
+  repairImages       WorkOrderRepairImage[]
+  firmInvoiceItem    FirmInvoiceItem?
+  operatorNotes      WorkOrderOperatorNote[]
+  plannerEvent       PlannerEvent?
+}
+
+model WorkOrderOperatorNote {
+  id          String   @id @default(cuid())
+  content     String
+  authorId    String
+  workOrderId String
+  createdAt   DateTime @default(now())
+
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@index([workOrderId, createdAt])
+}
+
+model FirmInvoice {
+  id          String    @id @default(cuid())
+  invoiceNo   String    @unique
+  brand       String
+  totalAmount Float     @default(0)
+  issuedAt    DateTime  @default(now())
+  dueDate     DateTime?
+  isPaid      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  items FirmInvoiceItem[]
+}
+
+model FirmInvoiceItem {
+  id            String @id @default(cuid())
+  firmInvoiceId String
+  workOrderId   String @unique
+
+  firmInvoice FirmInvoice @relation(fields: [firmInvoiceId], references: [id], onDelete: Cascade)
+  workOrder   WorkOrder   @relation(fields: [workOrderId], references: [id])
+}
+
+model WorkOrderRepairItem {
+  id          String   @id @default(cuid())
+  description String
+  amount      Float
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+}
+
+model WorkOrderRepairImage {
+  id          String   @id @default(cuid())
+  fileName    String
+  mimeType    String
+  storedPath  String
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@index([workOrderId])
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  firstName String
+  lastName  String
+  iban      String
+  city      String?
+  district  String?
+  phone     String?
+  notes     String?
+  balance   Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workOrders    WorkOrder[]
+  ledgerEntries SupplierLedgerEntry[]
+}
+
+model SupplierLedgerEntry {
+  id          String             @id @default(cuid())
+  type        SupplierLedgerType @default(HIZMET)
+  amount      Float
+  description String?
+  createdAt   DateTime           @default(now())
+
+  supplierId  String
+  workOrderId String?            @unique
+  supplier    Supplier           @relation(fields: [supplierId], references: [id])
+  workOrder   WorkOrder?         @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+}
+
+enum SupplierLedgerType {
+  HIZMET
+  ODEME
+}
+
+enum MailFolder {
+  INBOX
+  SENT
+  DRAFTS
+  ARCHIVE
+  TRASH
+}
+
+model MailSetting {
+  id         String   @id @default("default")
+  imapHost   String?
+  imapPort   Int      @default(993)
+  imapSecure Boolean  @default(true)
+  imapUser   String?
+  imapPass   String?
+  smtpHost   String?
+  smtpPort   Int      @default(587)
+  smtpSecure Boolean  @default(false)
+  smtpUser   String?
+  smtpPass   String?
+  fromName   String?
+  fromEmail  String?
+  signatureText String?
+  signatureHtml String?
+  updatedAt  DateTime @updatedAt
+}
+
+model MailMessage {
+  id             String     @id @default(cuid())
+  folder         MailFolder @default(INBOX)
+  externalId     String?    @unique
+  subject        String
+  fromName       String?
+  fromEmail      String
+  toRecipients   String
+  ccRecipients   String?
+  bccRecipients  String?
+  bodyText       String?
+  bodyHtml       String?
+  isRead         Boolean    @default(false)
+  isStarred      Boolean    @default(false)
+  hasAttachments Boolean    @default(false)
+  sentById       String?
+  sentAt         DateTime?
+  receivedAt     DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  sentBy      User?            @relation("MailSender", fields: [sentById], references: [id])
+  attachments MailAttachment[]
+
+  @@index([folder, receivedAt])
+  @@index([folder, sentAt])
+}
+
+model MailAttachment {
+  id         String   @id @default(cuid())
+  messageId  String
+  fileName   String
+  mimeType   String
+  size       Int
+  storedPath String
+  createdAt  DateTime @default(now())
+
+  message MailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}

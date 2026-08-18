@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.env
+.env*.local
+*.db
+*.db-journal
+.tools
+uploads
+README.md
+DEPLOY.md
+tsconfig.tsbuildinfo

@@ -80,15 +80,6 @@ workOrdersRouter.post("/", requirePermission("orders:write"), async (req, res) =
     return;
   }
 
-  const duplicate = await prisma.workOrder.findUnique({
-    where: { asistansDosyaNo: assistanceNo },
-    select: { id: true, ticketNo: true },
-  });
-  if (duplicate) {
-    res.status(409).json({ error: `Bu asistans dosya no ile kayıt zaten mevcut (${duplicate.ticketNo}).` });
-    return;
-  }
-
   if (!assignedToId?.trim()) {
     res.status(400).json({ error: "Koordinatör seçimi zorunludur" });
     return;

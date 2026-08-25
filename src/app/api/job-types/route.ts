@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/api-auth";
+import { requireJobTypeManage, requirePermission } from "@/lib/api-auth";
 import { logActivity } from "@/lib/activity-log";
 import {
   listJobTypeDefinitions,
@@ -11,8 +11,13 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const activeOnly = searchParams.get("active") === "true";
 
-  const { error } = await requirePermission(activeOnly ? "orders:read" : "settings:manage");
-  if (error) return error;
+  if (activeOnly) {
+    const readCheck = await requirePermission("orders:read");
+    if (readCheck.error) return readCheck.error;
+  } else {
+    const manageCheck = await requireJobTypeManage();
+    if (manageCheck.error) return manageCheck.error;
+  }
 
   const definitions = await listJobTypeDefinitions(prisma, activeOnly);
   const usageCounts = await prisma.workOrder.groupBy({
@@ -30,7 +35,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { user, error } = await requirePermission("settings:manage");
+  const { user, error } = await requireJobTypeManage();
   if (error) return error;
 
   const body = await request.json();

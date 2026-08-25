@@ -42,6 +42,7 @@ export function JobTypesPanel({
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<JobTypeRow | null>(null);
   const [label, setLabel] = useState("");
+  const [code, setCode] = useState("");
   const [sortOrder, setSortOrder] = useState("0");
   const [active, setActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -58,6 +59,7 @@ export function JobTypesPanel({
   function openEdit(item: JobTypeRow) {
     setEditTarget(item);
     setLabel(item.label);
+    setCode(item.code);
     setSortOrder(String(item.sortOrder));
     setActive(item.active);
     setError(null);
@@ -99,7 +101,7 @@ export function JobTypesPanel({
       const res = await apiFetch(`/api/job-types/${encodeURIComponent(editTarget.code)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label, sortOrder: Number(sortOrder), active }),
+        body: JSON.stringify({ label, code, sortOrder: Number(sortOrder), active }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -134,7 +136,7 @@ export function JobTypesPanel({
     <div>
       <PageHeader
         title="İş Türleri"
-        description="Talep kayıtlarında seçilecek arıza ve bakım kategorilerini yönetin"
+        description="Asistans kayıtlarında seçilecek hizmet kategorilerini yönetin"
         breadcrumb={["Yönetim", "Ayarlar", "İş Türleri"]}
         action={
           canManage ? (
@@ -209,7 +211,7 @@ export function JobTypesPanel({
 
       <p className="mt-4 flex items-start gap-2 text-sm text-zinc-500">
         <Settings2 className="mt-0.5 h-4 w-4 shrink-0" />
-        Pasif iş türleri yeni kayıtlarda listelenmez. Kullanımda olan bir tür silinirse mevcut kayıtlarda kod olarak kalır.
+        Pasif iş türleri yeni kayıtlarda listelenmez. Kullanımda olan bir tür silinebilir; mevcut kayıtlarda kod olarak kalır.
       </p>
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Yeni İş Türü">
@@ -243,7 +245,16 @@ export function JobTypesPanel({
 
       <Modal open={editTarget != null} onClose={closeEdit} title="İş Türünü Düzenle">
         <form onSubmit={(e) => void handleUpdate(e)} className="space-y-4">
-          <Input label="Kod" value={editTarget?.code ?? ""} disabled />
+          <Input
+            label="Kod"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="YOL_YARDIMI"
+            required
+          />
+          <p className="-mt-2 text-xs text-zinc-500">
+            Kod değişirse bu türü kullanan {editTarget?.usageCount ?? 0} kayıt yeni koda taşınır.
+          </p>
           <Input
             label="İş türü adı"
             value={label}
@@ -274,7 +285,7 @@ export function JobTypesPanel({
           {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex justify-end gap-2 border-t border-zinc-100 pt-4">
             <Button type="button" variant="secondary" onClick={closeEdit}>İptal</Button>
-            <Button type="submit" variant="accent" disabled={submitting || !label.trim()}>
+            <Button type="submit" variant="accent" disabled={submitting || !label.trim() || !code.trim()}>
               {submitting ? "Kaydediliyor..." : "Güncelle"}
             </Button>
           </div>

@@ -156,6 +156,13 @@ export function canAccessTab(role: Role, customTabs: AppTabId[] | null, tabId: A
 }
 
 export function canAccessPath(pathname: string, role: Role, customTabs: AppTabId[] | null): boolean {
+  if (pathname === "/ayarlar/is-turleri" || pathname.startsWith("/ayarlar/is-turleri/")) {
+    return (
+      sessionHasPermission(role, customTabs, "settings:manage") ||
+      sessionHasPermission(role, customTabs, "orders:write")
+    );
+  }
+
   return canAccessTab(role, customTabs, tabForPath(pathname));
 }
 

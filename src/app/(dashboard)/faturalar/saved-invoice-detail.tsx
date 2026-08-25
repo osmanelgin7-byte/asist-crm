@@ -2,7 +2,7 @@
 import { apiFetch, downloadFile } from "@/lib/api-client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FileSpreadsheet, Trash2, X } from "lucide-react";
+import { FileSpreadsheet, Trash2, X, Plus, MinusCircle } from "lucide-react";
 import { Button } from "@/components/button";
 import {
   Card, CardBody, CardHeader,
@@ -12,7 +12,7 @@ import { Badge } from "@/components/badge";
 import { formatCurrency, formatDate, formatDateTime, cn } from "@/lib/utils";
 import { workOrderStatusLabels, workOrderStatusColors } from "@/lib/permissions";
 import { domainLabels } from "@/lib/domain";
-import { groupOrdersByJobType } from "@/lib/invoice-job-groups";
+import type { InvoiceOrder } from "./invoices-panel";
 
 interface CompanyInfo {
   id: string;
@@ -50,6 +50,7 @@ export interface SavedInvoiceDetail {
 
 export function SavedInvoiceDetailPanel({
   invoice,
+  pendingOrders,
   canWrite,
   jobTypeLabelMap,
   onClose,
@@ -57,6 +58,7 @@ export function SavedInvoiceDetailPanel({
   onDeleted,
 }: {
   invoice: SavedInvoiceDetail;
+  pendingOrders: InvoiceOrder[];
   canWrite: boolean;
   jobTypeLabelMap: Record<string, string>;
   onClose: () => void;
@@ -68,17 +70,34 @@ export function SavedInvoiceDetailPanel({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAddPanel, setShowAddPanel] = useState(false);
+  const [selectedAddIds, setSelectedAddIds] = useState<Set<string>>(new Set());
+  const [adding, setAdding] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   useEffect(() => {
     setDueDate(invoice.dueDate ? invoice.dueDate.slice(0, 10) : "");
     setIsPaid(invoice.isPaid);
     setError(null);
+    setShowAddPanel(false);
+    setSelectedAddIds(new Set());
   }, [invoice]);
 
-  const grouped = useMemo(
-    () => groupOrdersByJobType(invoice.items, jobTypeLabelMap),
-    [invoice.items, jobTypeLabelMap]
+  const invoiceItemIds = useMemo(() => new Set(invoice.items.map((i) => i.id)), [invoice.items]);
+
+  const availableToAdd = useMemo(
+    () => pendingOrders.filter((o) => !invoiceItemIds.has(o.id)),
+    [pendingOrders, invoiceItemIds]
   );
+
+  function toggleAddId(id: string) {
+    setSelectedAddIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -121,6 +140,58 @@ export function SavedInvoiceDetailPanel({
       onDeleted();
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleRemoveItem(workOrderId: string) {
+    const item = invoice.items.find((i) => i.id === workOrderId);
+    const confirmed = window.confirm(
+      `${item?.asistansDosyaNo || item?.title || "Bu iş"} faturadan çıkarılsın mı? İş tekrar faturalanabilir listesine döner.`
+    );
+    if (!confirmed) return;
+
+    setRemovingId(workOrderId);
+    setError(null);
+    try {
+      const res = await apiFetch(
+        `/api/firm-invoices/${invoice.id}/items?workOrderId=${encodeURIComponent(workOrderId)}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(typeof data.error === "string" ? data.error : "İş çıkarılamadı.");
+        return;
+      }
+      onSaved();
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  async function handleAddItems() {
+    if (selectedAddIds.size === 0) {
+      setError("Eklemek için en az bir iş seçin.");
+      return;
+    }
+
+    setAdding(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/firm-invoices/${invoice.id}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workOrderIds: [...selectedAddIds] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(typeof data.error === "string" ? data.error : "İşler eklenemedi.");
+        return;
+      }
+      setSelectedAddIds(new Set());
+      setShowAddPanel(false);
+      onSaved();
+    } finally {
+      setAdding(false);
     }
   }
 
@@ -263,64 +334,157 @@ export function SavedInvoiceDetailPanel({
         </div>
 
         <div className="space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Hizmet Türüne Göre İşler</p>
-          {grouped.map(({ jobType, label, orders, total }) => (
-            <Card key={jobType}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              Faturadaki İşler ({invoice.items.length})
+            </p>
+            {canWrite && availableToAdd.length > 0 && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowAddPanel((v) => !v)}
+                disabled={adding || Boolean(removingId)}
+              >
+                <Plus className="h-4 w-4" />
+                {showAddPanel ? "Ekleme Panelini Kapat" : "İş Ekle"}
+              </Button>
+            )}
+          </div>
+
+          {showAddPanel && canWrite && (
+            <Card>
               <CardHeader
-                title={label}
+                title="Faturaya Eklenecek İşler"
                 action={
-                  <span className="text-sm font-semibold text-indigo-700">
-                    Toplam Tutar: {formatCurrency(total)}
+                  <span className="text-xs text-zinc-500">
+                    Seçili: {selectedAddIds.size} · {availableToAdd.length} uygun iş
                   </span>
                 }
               />
-              <CardBody flush>
-                <DataTable>
-                  <DataTableHead>
-                    <DataTableHeader>{domainLabels.workOrder.assistanceFileNo}</DataTableHeader>
-                    <DataTableHeader>{domainLabels.insuranceCompany.one}</DataTableHeader>
-                    <DataTableHeader>İş</DataTableHeader>
-                    <DataTableHeader>Durum</DataTableHeader>
-                    <DataTableHeader>Tarih</DataTableHeader>
-                    <DataTableHeader>Tutar (₺)</DataTableHeader>
-                  </DataTableHead>
-                  <DataTableBody>
-                    {orders.map((o) => (
-                      <DataTableRow key={o.id}>
-                        <DataTableCell>
-                          <span className="font-mono text-xs font-semibold">{o.asistansDosyaNo || "—"}</span>
-                        </DataTableCell>
-                        <DataTableCell className="text-xs text-zinc-600">
-                          {o.insuranceCompany.shortCode
-                            ? `${o.insuranceCompany.shortCode} — ${o.insuranceCompany.name}`
-                            : o.insuranceCompany.name}
-                        </DataTableCell>
-                        <DataTableCell>
-                          <div className="font-medium text-zinc-900">{o.title}</div>
-                          {o.repairItems.length > 0 && (
-                            <div className="mt-1 text-xs text-zinc-400">
-                              {o.repairItems.map((i) => i.description).join(" · ")}
-                            </div>
-                          )}
-                        </DataTableCell>
-                        <DataTableCell>
-                          <Badge className={workOrderStatusColors[o.status]}>
-                            {workOrderStatusLabels[o.status] ?? o.status}
-                          </Badge>
-                        </DataTableCell>
-                        <DataTableCell className="text-xs text-zinc-500">
-                          {o.completedAt ? formatDateTime(o.completedAt) : formatDateTime(o.reportedAt)}
-                        </DataTableCell>
-                        <DataTableCell className="font-semibold text-zinc-900">
-                          {formatCurrency(o.invoiceAmount)}
-                        </DataTableCell>
-                      </DataTableRow>
-                    ))}
-                  </DataTableBody>
-                </DataTable>
+              <CardBody flush className="space-y-4">
+                {availableToAdd.length === 0 ? (
+                  <p className="px-6 py-4 text-sm text-zinc-500">Bu firmaya ait eklenebilecek tamamlanan iş kalmadı.</p>
+                ) : (
+                  <>
+                    <DataTable>
+                      <DataTableHead>
+                        <DataTableHeader>Seç</DataTableHeader>
+                        <DataTableHeader>{domainLabels.workOrder.assistanceFileNo}</DataTableHeader>
+                        <DataTableHeader>{domainLabels.jobType.one}</DataTableHeader>
+                        <DataTableHeader>İş</DataTableHeader>
+                        <DataTableHeader>Tarih</DataTableHeader>
+                        <DataTableHeader>Fatura (₺)</DataTableHeader>
+                      </DataTableHead>
+                      <DataTableBody>
+                        {availableToAdd.map((o) => (
+                          <DataTableRow
+                            key={o.id}
+                            className={cn(selectedAddIds.has(o.id) && "bg-indigo-50/40")}
+                          >
+                            <DataTableCell>
+                              <input
+                                type="checkbox"
+                                checked={selectedAddIds.has(o.id)}
+                                onChange={() => toggleAddId(o.id)}
+                                className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                              />
+                            </DataTableCell>
+                            <DataTableCell>
+                              <span className="font-mono text-xs font-semibold">{o.asistansDosyaNo || "—"}</span>
+                            </DataTableCell>
+                            <DataTableCell className="text-xs text-zinc-600">
+                              {jobTypeLabelMap[o.jobType] ?? o.jobType}
+                            </DataTableCell>
+                            <DataTableCell>
+                              <div className="font-medium text-zinc-900">{o.title}</div>
+                            </DataTableCell>
+                            <DataTableCell className="text-xs text-zinc-500">
+                              {o.completedAt ? formatDateTime(o.completedAt) : formatDateTime(o.reportedAt)}
+                            </DataTableCell>
+                            <DataTableCell className="font-semibold text-zinc-900">
+                              {formatCurrency(o.invoiceAmount)}
+                            </DataTableCell>
+                          </DataTableRow>
+                        ))}
+                      </DataTableBody>
+                    </DataTable>
+                    <div className="border-t border-zinc-100 px-6 py-4">
+                      <Button
+                        type="button"
+                        variant="accent"
+                        onClick={() => void handleAddItems()}
+                        disabled={adding || selectedAddIds.size === 0}
+                      >
+                        <Plus className="h-4 w-4" />
+                        {adding ? "Ekleniyor…" : `Seçilen ${selectedAddIds.size} İşi Faturaya Ekle`}
+                      </Button>
+                    </div>
+                  </>
+                )}
               </CardBody>
             </Card>
-          ))}
+          )}
+
+          <Card>
+            <CardBody flush>
+              <DataTable>
+                <DataTableHead>
+                  <DataTableHeader>{domainLabels.workOrder.assistanceFileNo}</DataTableHeader>
+                  <DataTableHeader>{domainLabels.jobType.one}</DataTableHeader>
+                  <DataTableHeader>İş</DataTableHeader>
+                  <DataTableHeader>Durum</DataTableHeader>
+                  <DataTableHeader>Tarih</DataTableHeader>
+                  <DataTableHeader>Tutar (₺)</DataTableHeader>
+                  {canWrite && <DataTableHeader>İşlem</DataTableHeader>}
+                </DataTableHead>
+                <DataTableBody>
+                  {invoice.items.map((o) => (
+                    <DataTableRow key={o.id}>
+                      <DataTableCell>
+                        <span className="font-mono text-xs font-semibold">{o.asistansDosyaNo || "—"}</span>
+                      </DataTableCell>
+                      <DataTableCell className="text-xs text-zinc-600">
+                        {jobTypeLabelMap[o.jobType] ?? o.jobType}
+                      </DataTableCell>
+                      <DataTableCell>
+                        <div className="font-medium text-zinc-900">{o.title}</div>
+                        {o.repairItems.length > 0 && (
+                          <div className="mt-1 text-xs text-zinc-400">
+                            {o.repairItems.map((i) => i.description).join(" · ")}
+                          </div>
+                        )}
+                      </DataTableCell>
+                      <DataTableCell>
+                        <Badge className={workOrderStatusColors[o.status]}>
+                          {workOrderStatusLabels[o.status] ?? o.status}
+                        </Badge>
+                      </DataTableCell>
+                      <DataTableCell className="text-xs text-zinc-500">
+                        {o.completedAt ? formatDateTime(o.completedAt) : formatDateTime(o.reportedAt)}
+                      </DataTableCell>
+                      <DataTableCell className="font-semibold text-zinc-900">
+                        {formatCurrency(o.invoiceAmount)}
+                      </DataTableCell>
+                      {canWrite && (
+                        <DataTableCell>
+                          <button
+                            type="button"
+                            onClick={() => void handleRemoveItem(o.id)}
+                            disabled={removingId === o.id || invoice.items.length <= 1}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={invoice.items.length <= 1 ? "Son kalemi çıkarmak için faturayı silin" : "Faturadan çıkar"}
+                          >
+                            <MinusCircle className="h-3.5 w-3.5" />
+                            {removingId === o.id ? "Çıkarılıyor…" : "Çıkar"}
+                          </button>
+                        </DataTableCell>
+                      )}
+                    </DataTableRow>
+                  ))}
+                </DataTableBody>
+              </DataTable>
+            </CardBody>
+          </Card>
         </div>
       </CardBody>
     </Card>

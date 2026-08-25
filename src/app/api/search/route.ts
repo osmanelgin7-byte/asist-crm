@@ -26,7 +26,11 @@ export async function GET(request: Request) {
             OR: [
               { ticketNo: { contains: q } },
               { title: { contains: q } },
+              { asistansDosyaNo: { contains: q } },
               { description: { contains: q } },
+              { insuredFirstName: { contains: q } },
+              { insuredLastName: { contains: q } },
+              { insuredPhone: { contains: q } },
               { insuranceCompany: { name: { contains: q } } },
               { insuranceCompany: { shortCode: { contains: q } } },
               { insuranceCompany: { city: { contains: q } } },
@@ -57,11 +61,16 @@ export async function GET(request: Request) {
     ...workOrders.map((order) => ({
       type: "work-order" as const,
       id: order.id,
-      label: order.ticketNo,
+      label: order.asistansDosyaNo ?? order.ticketNo,
       title: order.title,
-      subtitle: order.insuranceCompany.shortCode
-        ? `${order.insuranceCompany.shortCode} — ${order.insuranceCompany.name}`
-        : order.insuranceCompany.name,
+      subtitle: [
+        order.asistansDosyaNo ? `Asistans: ${order.asistansDosyaNo}` : null,
+        order.insuranceCompany.shortCode
+          ? `${order.insuranceCompany.shortCode} — ${order.insuranceCompany.name}`
+          : order.insuranceCompany.name,
+      ]
+        .filter(Boolean)
+        .join(" · "),
       href: `/work-orders/${order.id}`,
     })),
     ...companies.map((company) => ({

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Plus, Download, FileSpreadsheet, Wrench, CheckCircle2,
-  Building2, Eye, Trash2,
+  Building2, Eye, Trash2, Search,
 } from "lucide-react";
 import { PageHeader, FilterPills } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
@@ -112,6 +112,7 @@ export function WorkOrdersPanel({
   const router = useRouter();
   const [responsibleFilter, setResponsibleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [dosyaSearch, setDosyaSearch] = useState("");
 
   const responsibleFilterOptions = useMemo(
     () => [
@@ -145,17 +146,39 @@ export function WorkOrdersPanel({
       result = result.filter((o) => o.status === statusFilter);
     }
 
+    const q = dosyaSearch.trim().toLowerCase();
+    if (q) {
+      result = result.filter((o) => {
+        const haystack = [
+          o.asistansDosyaNo,
+          o.title,
+          o.ticketNo,
+          o.insuredFirstName,
+          o.insuredLastName,
+          o.insuredPhone,
+          o.insuranceCompany.name,
+          o.insuranceCompany.shortCode,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(q);
+      });
+    }
+
     return result;
-  }, [orders, responsibleFilter, statusFilter]);
+  }, [orders, responsibleFilter, statusFilter, dosyaSearch]);
 
   const activeResponsibleLabel =
     responsibleFilterOptions.find((o) => o.value === responsibleFilter)?.label ?? "Tümü";
   const activeStatusLabel =
     statusFilterOptions.find((o) => o.value === statusFilter)?.label ?? "Tümü";
-  const hasActiveFilters = responsibleFilter !== "all" || statusFilter !== "all";
+  const hasActiveFilters =
+    responsibleFilter !== "all" || statusFilter !== "all" || dosyaSearch.trim().length > 0;
 
   function switchTab(tab: "open" | "completed") {
     setStatusFilter("all");
+    setDosyaSearch("");
     router.push(tab === "completed" ? "/work-orders?tab=completed" : "/work-orders");
   }
 
@@ -294,6 +317,28 @@ export function WorkOrdersPanel({
           title={activeTab === "completed" ? domainLabels.workOrder.completed : domainLabels.workOrder.open}
         />
         <CardBody>
+          <div className="mb-5">
+            <label htmlFor="dosya-search" className="mb-1.5 block text-xs font-medium text-zinc-600">
+              Dosya no / asistans no ara
+            </label>
+            <div className="relative max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+              <input
+                id="dosya-search"
+                type="search"
+                value={dosyaSearch}
+                onChange={(e) => setDosyaSearch(e.target.value)}
+                placeholder="Asistans dosya no, dosya no, sigortalı..."
+                className="w-full rounded-xl border border-zinc-200 bg-white py-2.5 pl-10 pr-3 text-sm text-zinc-800 outline-none transition-colors focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+            {dosyaSearch.trim() && (
+              <p className="mt-2 text-xs text-zinc-500">
+                &quot;{dosyaSearch.trim()}&quot; için {filteredOrders.length} kayıt
+                {filteredOrders.length > 1 ? " (aynı numara birden fazla olabilir)" : ""}
+              </p>
+            )}
+          </div>
           <p className="mb-3 text-xs text-zinc-500">
             Koordinatöre göre filtreleyin — seçili:{" "}
             <span className="font-semibold text-zinc-700">{activeResponsibleLabel}</span>

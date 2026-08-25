@@ -3,7 +3,7 @@ import { apiFetch, downloadFile } from "@/lib/api-client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Receipt, FileSpreadsheet, Save, Eye, Trash2 } from "lucide-react";
+import { FileSpreadsheet, Save, Eye, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/button";
 import { Input } from "@/components/form-fields";
@@ -16,7 +16,7 @@ import { workOrderStatusLabels, workOrderStatusColors } from "@/lib/permissions"
 import { Badge } from "@/components/badge";
 import { SavedInvoiceDetailPanel, type SavedInvoiceDetail } from "./saved-invoice-detail";
 import { domainLabels } from "@/lib/domain";
-import { groupOrdersByJobType } from "@/lib/invoice-job-groups";
+import { groupOrdersByFirm } from "@/lib/invoice-job-groups";
 
 interface CompanyInfo {
   id: string;
@@ -26,7 +26,7 @@ interface CompanyInfo {
   address: string | null;
 }
 
-interface InvoiceOrder {
+export interface InvoiceOrder {
   id: string;
   ticketNo: string;
   asistansDosyaNo: string | null;
@@ -38,6 +38,81 @@ interface InvoiceOrder {
   reportedAt: string;
   insuranceCompany: CompanyInfo;
   repairItems: { description: string; amount: number }[];
+}
+
+function PendingOrderTable({
+  orders,
+  selectedBrand,
+  canWrite,
+  selectedOrderIds,
+  onToggle,
+  jobTypeLabelMap,
+}: {
+  orders: InvoiceOrder[];
+  selectedBrand: string;
+  canWrite: boolean;
+  selectedOrderIds: Set<string>;
+  onToggle: (id: string) => void;
+  jobTypeLabelMap: Record<string, string>;
+}) {
+  return (
+    <DataTable>
+      <DataTableHead>
+        {selectedBrand && canWrite && <DataTableHeader>Seç</DataTableHeader>}
+        <DataTableHeader>{domainLabels.workOrder.assistanceFileNo}</DataTableHeader>
+        <DataTableHeader>{domainLabels.jobType.one}</DataTableHeader>
+        <DataTableHeader>İş</DataTableHeader>
+        <DataTableHeader>Durum</DataTableHeader>
+        <DataTableHeader>Tarih</DataTableHeader>
+        <DataTableHeader>Fatura (₺)</DataTableHeader>
+      </DataTableHead>
+      <DataTableBody>
+        {orders.map((o) => (
+          <DataTableRow
+            key={o.id}
+            className={cn(selectedOrderIds.has(o.id) && "bg-indigo-50/40")}
+          >
+            {selectedBrand && canWrite && (
+              <DataTableCell>
+                <input
+                  type="checkbox"
+                  checked={selectedOrderIds.has(o.id)}
+                  onChange={() => onToggle(o.id)}
+                  className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                  aria-label={`${o.asistansDosyaNo || o.title} seç`}
+                />
+              </DataTableCell>
+            )}
+            <DataTableCell>
+              <span className="font-mono text-xs font-semibold">{o.asistansDosyaNo || "—"}</span>
+            </DataTableCell>
+            <DataTableCell className="text-xs text-zinc-600">
+              {jobTypeLabelMap[o.jobType] ?? o.jobType}
+            </DataTableCell>
+            <DataTableCell>
+              <div className="font-medium text-zinc-900">{o.title}</div>
+              {o.repairItems.length > 0 && (
+                <div className="mt-1 text-xs text-zinc-400">
+                  {o.repairItems.map((i) => i.description).join(" · ")}
+                </div>
+              )}
+            </DataTableCell>
+            <DataTableCell>
+              <Badge className={workOrderStatusColors[o.status]}>
+                {workOrderStatusLabels[o.status] ?? o.status}
+              </Badge>
+            </DataTableCell>
+            <DataTableCell className="text-xs text-zinc-500">
+              {o.completedAt ? formatDateTime(o.completedAt) : formatDateTime(o.reportedAt)}
+            </DataTableCell>
+            <DataTableCell className="font-semibold text-zinc-900">
+              {formatCurrency(o.invoiceAmount)}
+            </DataTableCell>
+          </DataTableRow>
+        ))}
+      </DataTableBody>
+    </DataTable>
+  );
 }
 
 export function InvoicesPanel({
@@ -65,18 +140,7 @@ export function InvoicesPanel({
 
   const viewingInvoice = savedInvoices.find((inv) => inv.id === viewingInvoiceId) ?? null;
 
-  const grouped = useMemo(
-    () => groupOrdersByJobType(pendingOrders, jobTypeLabelMap),
-    [pendingOrders, jobTypeLabelMap]
-  );
-
-  const selectedOrders = useMemo(
-    () => pendingOrders.filter((o) => selectedOrderIds.has(o.id)),
-    [pendingOrders, selectedOrderIds]
-  );
-
-  const selectedTotal = selectedOrders.reduce((sum, o) => sum + o.invoiceAmount, 0);
-  const pendingTotal = pendingOrders.reduce((sum, o) => sum + o.invoiceAmount, 0);
+  const firmGroups = useMemo(() => groupOrdersByFirm(pendingOrders), [pendingOrders]);
 
   useEffect(() => {
     setSelectedOrderIds(new Set());
@@ -102,19 +166,6 @@ export function InvoicesPanel({
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleJobTypeGroup(jobType: string, checked: boolean) {
-    const group = grouped.find((g) => g.jobType === jobType);
-    if (!group) return;
-    setSelectedOrderIds((prev) => {
-      const next = new Set(prev);
-      for (const order of group.orders) {
-        if (checked) next.add(order.id);
-        else next.delete(order.id);
-      }
       return next;
     });
   }
@@ -307,6 +358,9 @@ export function InvoicesPanel({
       {viewingInvoice && (
         <SavedInvoiceDetailPanel
           invoice={viewingInvoice}
+          pendingOrders={pendingOrders.filter(
+            (o) => (o.insuranceCompany.shortCode ?? "") === viewingInvoice.brand
+          )}
           canWrite={canWrite}
           jobTypeLabelMap={jobTypeLabelMap}
           onClose={() => setViewingInvoiceId(null)}
@@ -327,8 +381,7 @@ export function InvoicesPanel({
                 <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{formError}</div>
               )}
               <p className="text-sm text-zinc-500">
-                Aşağıdan faturaya eklenecek işleri seçin. Seçilen {selectedOrderIds.size} iş ·{" "}
-                {formatCurrency(selectedTotal)} — hizmet türüne göre gruplanmış kayıtlar tek fatura numarası altında birleştirilir.
+                Aşağıdaki listeden faturaya eklenecek işleri tek tek seçin. Seçili: {selectedOrderIds.size} iş.
               </p>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div className="flex-1">
@@ -361,7 +414,7 @@ export function InvoicesPanel({
       )}
 
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-        {selectedBrand ? `${selectedBrand} — Tamamlanan İşler` : "Tamamlanan İşler (Tüm Firmalar)"}
+        {selectedBrand ? `${selectedBrand} — Tamamlanan İşler` : "Tamamlanan İşler (Firma Bazlı)"}
       </h2>
 
       {pendingOrders.length === 0 ? (
@@ -372,106 +425,26 @@ export function InvoicesPanel({
         </Card>
       ) : (
         <div className="space-y-6">
-          <div className="flex items-center justify-between rounded-xl bg-zinc-900 px-5 py-4 text-white">
-            <div className="flex items-center gap-2 text-sm text-zinc-300">
-              <Receipt className="h-4 w-4 text-indigo-400" />
-              Tamamlanan Toplam
-              {selectedBrand ? ` · ${selectedBrand}` : ""}
-              {selectedBrand && canWrite && selectedOrderIds.size > 0 && (
-                <span className="text-indigo-300">
-                  · Seçili {selectedOrderIds.size} iş ({formatCurrency(selectedTotal)})
-                </span>
-              )}
-            </div>
-            <span className="text-xl font-semibold">{formatCurrency(pendingTotal)}</span>
-          </div>
-
-          {grouped.map(({ jobType, label, orders: jobOrders, total }) => {
-            const selectedInGroup = jobOrders.filter((o) => selectedOrderIds.has(o.id)).length;
-            const allSelected = selectedInGroup === jobOrders.length && jobOrders.length > 0;
-            const someSelected = selectedInGroup > 0 && !allSelected;
-
-            return (
-              <Card key={jobType}>
-                <CardHeader
-                  title={label}
-                  action={
-                    <div className="flex items-center gap-3">
-                      {selectedBrand && canWrite && (
-                        <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-zinc-600">
-                          <input
-                            type="checkbox"
-                            checked={allSelected}
-                            ref={(el) => {
-                              if (el) el.indeterminate = someSelected;
-                            }}
-                            onChange={(e) => toggleJobTypeGroup(jobType, e.target.checked)}
-                            className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-                          />
-                          Tümünü seç
-                        </label>
-                      )}
-                      <span className="text-sm font-semibold text-indigo-700">
-                        Toplam Tutar: {formatCurrency(total)}
-                      </span>
-                    </div>
-                  }
+          {firmGroups.map(({ firmKey, label, orders: firmOrders }) => (
+            <Card key={firmKey}>
+              <CardHeader
+                title={label}
+                action={
+                  <span className="text-xs text-zinc-500">{firmOrders.length} iş</span>
+                }
+              />
+              <CardBody flush>
+                <PendingOrderTable
+                  orders={firmOrders}
+                  selectedBrand={selectedBrand}
+                  canWrite={canWrite}
+                  selectedOrderIds={selectedOrderIds}
+                  onToggle={toggleOrder}
+                  jobTypeLabelMap={jobTypeLabelMap}
                 />
-                <CardBody flush>
-                  <DataTable>
-                    <DataTableHead>
-                      {selectedBrand && canWrite && <DataTableHeader>Seç</DataTableHeader>}
-                      <DataTableHeader>{domainLabels.workOrder.assistanceFileNo}</DataTableHeader>
-                      <DataTableHeader>{domainLabels.insuranceCompany.one}</DataTableHeader>
-                      <DataTableHeader>İş</DataTableHeader>
-                      <DataTableHeader>Durum</DataTableHeader>
-                      <DataTableHeader>Tarih</DataTableHeader>
-                      <DataTableHeader>Fatura (₺)</DataTableHeader>
-                    </DataTableHead>
-                    <DataTableBody>
-                      {jobOrders.map((o) => (
-                        <DataTableRow
-                          key={o.id}
-                          className={cn(selectedOrderIds.has(o.id) && "bg-indigo-50/40")}
-                        >
-                          {selectedBrand && canWrite && (
-                            <DataTableCell>
-                              <input
-                                type="checkbox"
-                                checked={selectedOrderIds.has(o.id)}
-                                onChange={() => toggleOrder(o.id)}
-                                className="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-                                aria-label={`${o.asistansDosyaNo || o.title} seç`}
-                              />
-                            </DataTableCell>
-                          )}
-                          <DataTableCell>
-                            <span className="font-mono text-xs font-semibold">{o.asistansDosyaNo || "—"}</span>
-                          </DataTableCell>
-                          <DataTableCell className="text-xs text-zinc-600">
-                            {o.insuranceCompany.shortCode || o.insuranceCompany.name}
-                          </DataTableCell>
-                          <DataTableCell>
-                            <div className="font-medium text-zinc-900">{o.title}</div>
-                            {o.repairItems.length > 0 && (
-                              <div className="mt-1 text-xs text-zinc-400">{o.repairItems.map((i) => i.description).join(" · ")}</div>
-                            )}
-                          </DataTableCell>
-                          <DataTableCell>
-                            <Badge className={workOrderStatusColors[o.status]}>{workOrderStatusLabels[o.status] ?? o.status}</Badge>
-                          </DataTableCell>
-                          <DataTableCell className="text-xs text-zinc-500">
-                            {o.completedAt ? formatDateTime(o.completedAt) : formatDateTime(o.reportedAt)}
-                          </DataTableCell>
-                          <DataTableCell className="font-semibold text-zinc-900">{formatCurrency(o.invoiceAmount)}</DataTableCell>
-                        </DataTableRow>
-                      ))}
-                    </DataTableBody>
-                  </DataTable>
-                </CardBody>
-              </Card>
-            );
-          })}
+              </CardBody>
+            </Card>
+          ))}
         </div>
       )}
     </div>

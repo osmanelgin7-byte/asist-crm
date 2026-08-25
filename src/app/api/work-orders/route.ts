@@ -88,17 +88,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const duplicate = await prisma.workOrder.findUnique({
-    where: { asistansDosyaNo: assistanceNo },
-    select: { id: true, ticketNo: true },
-  });
-  if (duplicate) {
-    return NextResponse.json(
-      { error: `Bu asistans dosya no ile kayıt zaten mevcut (${duplicate.ticketNo}).` },
-      { status: 409 }
-    );
-  }
-
   if (!assignedToId?.trim()) {
     return NextResponse.json({ error: "Koordinatör seçimi zorunludur" }, { status: 400 });
   }
@@ -177,10 +166,7 @@ export async function POST(request: Request) {
       "code" in err &&
       (err as { code?: string }).code === "P2002"
     ) {
-      return NextResponse.json(
-        { error: "Bu asistans dosya no ile kayıt zaten mevcut." },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: "Sistem kayıt numarası çakıştı, tekrar deneyin." }, { status: 409 });
     }
     throw err;
   }

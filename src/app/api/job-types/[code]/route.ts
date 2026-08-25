@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/api-auth";
+import { requireJobTypeManage } from "@/lib/api-auth";
 import { logActivity } from "@/lib/activity-log";
+import { slugifyJobTypeCode } from "@/lib/job-types";
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
-  const { user, error } = await requirePermission("settings:manage");
+  const { user, error } = await requireJobTypeManage();
   if (error) return error;
 
   const { code } = await params;
@@ -39,12 +40,46 @@ export async function PATCH(
     data.active = body.active;
   }
 
-  const updated = await prisma.jobTypeDefinition.update({
-    where: { code },
-    data,
+  let nextCode = code;
+  if (typeof body.code === "string") {
+    const requested = body.code.trim();
+    if (!requested) {
+      return NextResponse.json({ error: "Kod boş olamaz" }, { status: 400 });
+    }
+    nextCode = slugifyJobTypeCode(requested);
+    if (nextCode !== code) {
+      const taken = await prisma.jobTypeDefinition.findUnique({ where: { code: nextCode } });
+      if (taken) {
+        return NextResponse.json({ error: "Bu kod zaten kullanılıyor" }, { status: 409 });
+      }
+    }
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    if (nextCode !== code) {
+      await tx.workOrder.updateMany({
+        where: { jobType: code },
+        data: { jobType: nextCode },
+      });
+      await tx.jobTypeDefinition.create({
+        data: {
+          code: nextCode,
+          label: data.label ?? existing.label,
+          sortOrder: data.sortOrder ?? existing.sortOrder,
+          active: data.active ?? existing.active,
+        },
+      });
+      await tx.jobTypeDefinition.delete({ where: { code } });
+      return tx.jobTypeDefinition.findUniqueOrThrow({ where: { code: nextCode } });
+    }
+
+    return tx.jobTypeDefinition.update({
+      where: { code },
+      data,
+    });
   });
 
-  const usageCount = await prisma.workOrder.count({ where: { jobType: code } });
+  const usageCount = await prisma.workOrder.count({ where: { jobType: updated.code } });
 
   logActivity({
     userId: user!.id,
@@ -61,7 +96,7 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ code: string }> }
 ) {
-  const { user, error } = await requirePermission("settings:manage");
+  const { user, error } = await requireJobTypeManage();
   if (error) return error;
 
   const { code } = await params;

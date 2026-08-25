@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 
 export default async function JobTypesPage() {
   const access = await getServerAccess();
-  const canManage = access?.can("settings:manage") ?? false;
+  const canManage =
+    (access?.can("settings:manage") || access?.can("orders:write")) ?? false;
 
   const definitions = await listJobTypeDefinitions(prisma);
   const usageCounts = await prisma.workOrder.groupBy({

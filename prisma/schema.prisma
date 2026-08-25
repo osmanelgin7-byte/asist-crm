@@ -190,7 +190,7 @@ model WorkOrder {
   id          String          @id @default(cuid())
   ticketNo    String          @unique
   title       String
-  asistansDosyaNo String?     @unique
+  asistansDosyaNo String?
   insuredFirstName String?
   insuredLastName  String?
   insuredPhone     String?
@@ -222,6 +222,8 @@ model WorkOrder {
   firmInvoiceItem    FirmInvoiceItem?
   operatorNotes      WorkOrderOperatorNote[]
   plannerEvent       PlannerEvent?
+
+  @@index([asistansDosyaNo])
 }
 
 model WorkOrderOperatorNote {

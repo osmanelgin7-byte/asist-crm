@@ -42,7 +42,19 @@ jobTypesRouter.get("/", async (req, res) => {
   );
 });
 
-jobTypesRouter.post("/", requirePermission("settings:manage"), async (req, res) => {
+jobTypesRouter.post("/", async (req, res) => {
+  if (!req.user) {
+    res.status(401).json({ error: "Oturum gerekli" });
+    return;
+  }
+  const { sessionHasPermission } = await import("@asistcrm/lib/app-tabs");
+  if (
+    !sessionHasPermission(req.user.role, req.user.allowedTabs, "settings:manage") &&
+    !sessionHasPermission(req.user.role, req.user.allowedTabs, "orders:write")
+  ) {
+    res.status(403).json({ error: "İş türü yönetimi için yetkiniz yok" });
+    return;
+  }
   const body = req.body ?? {};
   const label = typeof body.label === "string" ? body.label.trim() : "";
   const sortOrder = Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : undefined;
@@ -85,7 +97,19 @@ jobTypesRouter.post("/", requirePermission("settings:manage"), async (req, res) 
   res.status(201).json({ ...created, usageCount: 0 });
 });
 
-jobTypesRouter.patch("/:code", requirePermission("settings:manage"), async (req, res) => {
+jobTypesRouter.patch("/:code", async (req, res) => {
+  if (!req.user) {
+    res.status(401).json({ error: "Oturum gerekli" });
+    return;
+  }
+  const { sessionHasPermission } = await import("@asistcrm/lib/app-tabs");
+  if (
+    !sessionHasPermission(req.user.role, req.user.allowedTabs, "settings:manage") &&
+    !sessionHasPermission(req.user.role, req.user.allowedTabs, "orders:write")
+  ) {
+    res.status(403).json({ error: "İş türü yönetimi için yetkiniz yok" });
+    return;
+  }
   const code = paramString(req.params.code);
   const existing = await prisma.jobTypeDefinition.findUnique({ where: { code } });
   if (!existing) {
@@ -132,7 +156,19 @@ jobTypesRouter.patch("/:code", requirePermission("settings:manage"), async (req,
   res.json({ ...updated, usageCount });
 });
 
-jobTypesRouter.delete("/:code", requirePermission("settings:manage"), async (req, res) => {
+jobTypesRouter.delete("/:code", async (req, res) => {
+  if (!req.user) {
+    res.status(401).json({ error: "Oturum gerekli" });
+    return;
+  }
+  const { sessionHasPermission } = await import("@asistcrm/lib/app-tabs");
+  if (
+    !sessionHasPermission(req.user.role, req.user.allowedTabs, "settings:manage") &&
+    !sessionHasPermission(req.user.role, req.user.allowedTabs, "orders:write")
+  ) {
+    res.status(403).json({ error: "İş türü yönetimi için yetkiniz yok" });
+    return;
+  }
   const code = paramString(req.params.code);
   const existing = await prisma.jobTypeDefinition.findUnique({ where: { code } });
   if (!existing) {

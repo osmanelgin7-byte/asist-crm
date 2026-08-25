@@ -64,6 +64,20 @@ export async function requireTabAccess(tabId: AppTabId, permission?: Permission)
   return { user, error: null };
 }
 
+export async function requireJobTypeManage() {
+  const { user, error } = await requireAuth();
+  if (error) return { user: null, error };
+
+  if (user!.can("settings:manage") || user!.can("orders:write")) {
+    return { user, error: null };
+  }
+
+  return {
+    user: null,
+    error: NextResponse.json({ error: "İş türü yönetimi için yetkiniz yok" }, { status: 403 }),
+  };
+}
+
 export type SessionUser = {
   id: string;
   name: string;

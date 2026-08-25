@@ -1,4 +1,5 @@
 import { domainLabels } from "@/lib/domain";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/api-auth";
 import { logActivity } from "@/lib/activity-log";
@@ -63,18 +64,6 @@ export async function PATCH(
     }
     if (title !== undefined) data.title = resolvedNumbers.dosyaNo;
     if (asistansDosyaNo !== undefined) {
-      if (resolvedNumbers.asistansDosyaNo !== existing.asistansDosyaNo) {
-        const duplicate = await prisma.workOrder.findUnique({
-          where: { asistansDosyaNo: resolvedNumbers.asistansDosyaNo },
-          select: { id: true },
-        });
-        if (duplicate && duplicate.id !== id) {
-          return NextResponse.json(
-            { error: "Bu asistans dosya no ile başka bir kayıt zaten mevcut." },
-            { status: 409 }
-          );
-        }
-      }
       data.asistansDosyaNo = resolvedNumbers.asistansDosyaNo;
     }
   }

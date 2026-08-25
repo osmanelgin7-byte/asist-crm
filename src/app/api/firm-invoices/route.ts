@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
-import { WorkOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireTabAccess } from "@/lib/api-auth";
+import {
+  normalizeWorkOrderIds,
+  validatePendingWorkOrdersForBrand,
+} from "@/lib/firm-invoice-items";
 
 export async function GET(request: Request) {
   const { error } = await requireTabAccess("invoices", "orders:read");
@@ -34,11 +37,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "En az bir iş seçilmelidir" }, { status: 400 });
   }
 
-  const uniqueIds = [
-    ...new Set(
-      workOrderIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0).map((id) => id.trim())
-    ),
-  ];
+  const uniqueIds = normalizeWorkOrderIds(workOrderIds);
   if (uniqueIds.length === 0) {
     return NextResponse.json({ error: "En az bir iş seçilmelidir" }, { status: 400 });
   }
@@ -50,30 +49,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Bu fatura numarası zaten kayıtlı" }, { status: 400 });
   }
 
-  const pendingWhere = {
-    status: { in: [WorkOrderStatus.TAMAMLANDI, WorkOrderStatus.SERVIS_BEDELI_ILE_TAMAMLANDI] },
-    insuranceCompany: { shortCode: brand.trim() },
-    firmInvoiceItem: null,
-    id: { in: uniqueIds },
-  };
-
-  const pendingOrders = await prisma.workOrder.findMany({
-    where: pendingWhere,
-    select: { id: true, invoiceAmount: true },
-  });
-
-  if (pendingOrders.length === 0) {
-    return NextResponse.json({ error: "Seçilen işler bulunamadı veya zaten faturalanmış" }, { status: 400 });
+  const validated = await validatePendingWorkOrdersForBrand(prisma, brand.trim(), uniqueIds);
+  if ("error" in validated) {
+    return NextResponse.json({ error: validated.error }, { status: 400 });
   }
 
-  if (pendingOrders.length !== uniqueIds.length) {
-    return NextResponse.json(
-      { error: "Bazı seçilen işler bu firmaya ait değil, tamamlanmamış veya zaten faturalanmış" },
-      { status: 400 }
-    );
-  }
-
-  const totalAmount = pendingOrders.reduce((sum, o) => sum + o.invoiceAmount, 0);
+  const totalAmount = validated.pendingOrders.reduce((sum, o) => sum + o.invoiceAmount, 0);
 
   const invoice = await prisma.firmInvoice.create({
     data: {
@@ -81,7 +62,7 @@ export async function POST(request: Request) {
       brand: brand.trim(),
       totalAmount,
       items: {
-        create: pendingOrders.map((o) => ({ workOrderId: o.id })),
+        create: validated.pendingOrders.map((o) => ({ workOrderId: o.id })),
       },
     },
     include: { _count: { select: { items: true } } },
